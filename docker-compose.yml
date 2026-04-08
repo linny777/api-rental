@@ -1,0 +1,11 @@
+services:
+  rental:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - db_data:/app/data
+    restart: unless-stopped
+
+volumes:
+  db_data:
