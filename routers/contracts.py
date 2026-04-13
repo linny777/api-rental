@@ -33,11 +33,20 @@ def _contract_out(c: models.RentalContract) -> schemas.ContractOut:
     return schemas.ContractOut(**d)
 
 
-def _find_chat(db: Session, apartment_id: int, renter_id: int) -> models.Chat | None:
-    return db.query(models.Chat).filter(
+def _get_or_create_chat(db: Session, apartment_id: int, owner_id: int, renter_id: int) -> models.Chat:
+    chat = db.query(models.Chat).filter(
         models.Chat.apartment_id == apartment_id,
         models.Chat.renter_id == renter_id,
     ).first()
+    if not chat:
+        chat = models.Chat(
+            apartment_id=apartment_id,
+            owner_id=owner_id,
+            renter_id=renter_id,
+        )
+        db.add(chat)
+        db.flush()  # get id without full commit
+    return chat
 
 
 def _send_system_message(db: Session, chat: models.Chat, contract: models.RentalContract, content: str):
@@ -81,6 +90,16 @@ def create_contract(
         monthly_price=body.monthly_price,
     )
     db.add(contract)
+    db.flush()  # get contract.id before commit
+
+    chat = _get_or_create_chat(db, body.apartment_id, apt.owner_id, current_user.id)
+    _send_system_message(
+        db, chat, contract,
+        f"📋 Создан договор {contract.contract_number}. "
+        f"Срок: {contract.start_date.strftime('%d.%m.%Y')} – {contract.end_date.strftime('%d.%m.%Y')}. "
+        f"Ожидается подпись арендатора."
+    )
+
     db.commit()
     return _contract_out(_load_contract(db, contract.id))
 
@@ -108,7 +127,7 @@ def sign_contract(
     contract.is_signed = True
     contract.signed_at = datetime.utcnow()
 
-    chat = _find_chat(db, contract.apartment_id, contract.renter_id)
+    chat = _get_or_create_chat(db, contract.apartment_id, contract.owner_id, contract.renter_id)
     if chat:
         _send_system_message(
             db, chat, contract,
@@ -149,7 +168,7 @@ def sign_contract_owner(
     except Exception:
         pass  # PDF generation failure should not block signing
 
-    chat = _find_chat(db, contract.apartment_id, contract.renter_id)
+    chat = _get_or_create_chat(db, contract.apartment_id, contract.owner_id, contract.renter_id)
     if chat:
         _send_system_message(
             db, chat, contract,
@@ -179,7 +198,7 @@ def terminate_contract(
     contract.terminated_at = datetime.utcnow()
 
     role = "арендодатель" if contract.owner_id == current_user.id else "арендатор"
-    chat = _find_chat(db, contract.apartment_id, contract.renter_id)
+    chat = _get_or_create_chat(db, contract.apartment_id, contract.owner_id, contract.renter_id)
     if chat:
         _send_system_message(
             db, chat, contract,
