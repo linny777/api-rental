@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -71,6 +72,8 @@ def list_apartments(
     has_parking: Optional[bool] = Query(None),
     pets_allowed: Optional[bool] = Query(None),
     sort_by: Optional[str] = Query("Newest"),
+    available_from: Optional[datetime] = Query(None),
+    available_to: Optional[datetime] = Query(None),
     db: Session = Depends(get_db),
 ):
     f = schemas.ApartmentFilter(
@@ -80,13 +83,33 @@ def list_apartments(
         min_area=min_area, has_furniture=has_furniture,
         has_parking=has_parking, pets_allowed=pets_allowed,
         sort_by=sort_by,
+        available_from=available_from,
+        available_to=available_to,
     )
     from sqlalchemy.orm import joinedload
     query = db.query(models.Apartment).options(
         joinedload(models.Apartment.owner),
         joinedload(models.Apartment.images),
     ).filter(models.Apartment.is_active == True)
-    apts = _apply_filter(query, f).all()
+    query = _apply_filter(query, f)
+
+    # Availability date filter: exclude apartments with overlapping active contracts
+    if available_from is not None or available_to is not None:
+        af = available_from or datetime.min
+        at = available_to or datetime.max
+        booked_ids = (
+            db.query(models.RentalContract.apartment_id)
+            .filter(
+                models.RentalContract.is_terminated == False,
+                models.RentalContract.is_signed == True,
+                models.RentalContract.start_date < at,
+                models.RentalContract.end_date > af,
+            )
+            .subquery()
+        )
+        query = query.filter(~models.Apartment.id.in_(booked_ids))
+
+    apts = query.all()
     return [_enrich(a) for a in apts]
 
 
@@ -101,6 +124,21 @@ def my_listings(
         joinedload(models.Apartment.images),
     ).filter(models.Apartment.owner_id == current_user.id).all()
     return [_enrich(a) for a in apts]
+
+
+@router.get("/{apartment_id}/bookings", response_model=list[schemas.BookingPeriodOut])
+def get_apartment_bookings(apartment_id: int, db: Session = Depends(get_db)):
+    """Return occupied date ranges for a given apartment (signed, non-terminated contracts)."""
+    contracts = (
+        db.query(models.RentalContract)
+        .filter(
+            models.RentalContract.apartment_id == apartment_id,
+            models.RentalContract.is_terminated == False,
+            models.RentalContract.is_signed == True,
+        )
+        .all()
+    )
+    return [{"start_date": c.start_date, "end_date": c.end_date} for c in contracts]
 
 
 @router.get("/{apartment_id}", response_model=schemas.ApartmentOut)

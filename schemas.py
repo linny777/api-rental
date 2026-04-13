@@ -117,6 +117,13 @@ class ApartmentFilter(BaseModel):
     has_parking: Optional[bool] = None
     pets_allowed: Optional[bool] = None
     sort_by: Optional[str] = "Newest"
+    available_from: Optional[datetime] = None
+    available_to: Optional[datetime] = None
+
+
+class BookingPeriodOut(BaseModel):
+    start_date: datetime
+    end_date: datetime
 
 
 # ── Chat & Message ────────────────────────────────────────────────────────────
