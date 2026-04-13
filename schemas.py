@@ -124,6 +124,22 @@ class ApartmentFilter(BaseModel):
 class BookingPeriodOut(BaseModel):
     start_date: datetime
     end_date: datetime
+    type: str = "contract"   # "contract" | "blocked"
+    id: Optional[int] = None  # id of BlockedPeriod (for deletion); None for contracts
+
+
+class BlockedPeriodCreate(BaseModel):
+    start_date: datetime
+    end_date: datetime
+    reason: Optional[str] = None
+
+
+class BlockedPeriodOut(_Base):
+    id: int
+    apartment_id: int
+    start_date: datetime
+    end_date: datetime
+    reason: Optional[str]
 
 
 # ── Chat & Message ────────────────────────────────────────────────────────────

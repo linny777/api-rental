@@ -107,7 +107,18 @@ def list_apartments(
             )
             .subquery()
         )
-        query = query.filter(~models.Apartment.id.in_(booked_ids))
+        blocked_ids = (
+            db.query(models.BlockedPeriod.apartment_id)
+            .filter(
+                models.BlockedPeriod.start_date < at,
+                models.BlockedPeriod.end_date > af,
+            )
+            .subquery()
+        )
+        query = query.filter(
+            ~models.Apartment.id.in_(booked_ids),
+            ~models.Apartment.id.in_(blocked_ids),
+        )
 
     apts = query.all()
     return [_enrich(a) for a in apts]
@@ -128,7 +139,7 @@ def my_listings(
 
 @router.get("/{apartment_id}/bookings", response_model=list[schemas.BookingPeriodOut])
 def get_apartment_bookings(apartment_id: int, db: Session = Depends(get_db)):
-    """Return occupied date ranges for a given apartment (signed, non-terminated contracts)."""
+    """Return all occupied date ranges: signed contracts + owner-blocked periods."""
     contracts = (
         db.query(models.RentalContract)
         .filter(
@@ -138,7 +149,77 @@ def get_apartment_bookings(apartment_id: int, db: Session = Depends(get_db)):
         )
         .all()
     )
-    return [{"start_date": c.start_date, "end_date": c.end_date} for c in contracts]
+    blocked = (
+        db.query(models.BlockedPeriod)
+        .filter(models.BlockedPeriod.apartment_id == apartment_id)
+        .all()
+    )
+    result = [{"start_date": c.start_date, "end_date": c.end_date, "type": "contract"} for c in contracts]
+    result += [{"start_date": b.start_date, "end_date": b.end_date, "type": "blocked", "id": b.id} for b in blocked]
+    return result
+
+
+@router.get("/{apartment_id}/blocked", response_model=list[schemas.BlockedPeriodOut])
+def list_blocked_periods(
+    apartment_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    apt = db.query(models.Apartment).filter(models.Apartment.id == apartment_id).first()
+    if not apt:
+        raise HTTPException(404, "Apartment not found")
+    if apt.owner_id != current_user.id:
+        raise HTTPException(403, "Not your apartment")
+    return db.query(models.BlockedPeriod).filter(models.BlockedPeriod.apartment_id == apartment_id).all()
+
+
+@router.post("/{apartment_id}/blocked", response_model=schemas.BlockedPeriodOut, status_code=201)
+def add_blocked_period(
+    apartment_id: int,
+    body: schemas.BlockedPeriodCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    apt = db.query(models.Apartment).filter(models.Apartment.id == apartment_id).first()
+    if not apt:
+        raise HTTPException(404, "Apartment not found")
+    if apt.owner_id != current_user.id:
+        raise HTTPException(403, "Not your apartment")
+    if body.end_date <= body.start_date:
+        raise HTTPException(400, "end_date must be after start_date")
+
+    period = models.BlockedPeriod(
+        apartment_id=apartment_id,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        reason=body.reason,
+    )
+    db.add(period)
+    db.commit()
+    db.refresh(period)
+    return period
+
+
+@router.delete("/{apartment_id}/blocked/{period_id}", status_code=204)
+def delete_blocked_period(
+    apartment_id: int,
+    period_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    apt = db.query(models.Apartment).filter(models.Apartment.id == apartment_id).first()
+    if not apt:
+        raise HTTPException(404, "Apartment not found")
+    if apt.owner_id != current_user.id:
+        raise HTTPException(403, "Not your apartment")
+    period = db.query(models.BlockedPeriod).filter(
+        models.BlockedPeriod.id == period_id,
+        models.BlockedPeriod.apartment_id == apartment_id,
+    ).first()
+    if not period:
+        raise HTTPException(404, "Blocked period not found")
+    db.delete(period)
+    db.commit()
 
 
 @router.get("/{apartment_id}", response_model=schemas.ApartmentOut)

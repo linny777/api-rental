@@ -56,6 +56,7 @@ class Apartment(Base):
     favorites = relationship("Favorite", back_populates="apartment", cascade="all, delete-orphan")
     chats = relationship("Chat", back_populates="apartment", cascade="all, delete-orphan")
     contracts = relationship("RentalContract", back_populates="apartment")
+    blocked_periods = relationship("BlockedPeriod", back_populates="apartment", cascade="all, delete-orphan")
 
 
 class ApartmentImage(Base):
@@ -143,3 +144,17 @@ class RentalContract(Base):
     @property
     def is_fully_signed(self) -> bool:
         return self.is_signed and self.is_owner_signed
+
+
+class BlockedPeriod(Base):
+    """Date ranges manually blocked by the apartment owner (no contract required)."""
+    __tablename__ = "blocked_periods"
+
+    id = Column(Integer, primary_key=True, index=True)
+    apartment_id = Column(Integer, ForeignKey("apartments.id"), nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    reason = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    apartment = relationship("Apartment", back_populates="blocked_periods")
