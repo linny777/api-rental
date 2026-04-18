@@ -85,3 +85,12 @@ def recent_messages(db: Session = Depends(get_db), _=Depends(require_admin)):
         joinedload(models.Message.sender)
     ).order_by(models.Message.sent_at.desc()).limit(100).all()
     return [_msg_out(m) for m in msgs]
+
+
+@router.delete("/messages/{message_id}", status_code=204)
+def delete_message(message_id: int, db: Session = Depends(get_db), _=Depends(require_admin)):
+    msg = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not msg:
+        raise HTTPException(404, "Message not found")
+    db.delete(msg)
+    db.commit()
