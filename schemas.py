@@ -191,6 +191,11 @@ class ContractCreate(BaseModel):
     monthly_price: float
 
 
+class SaleContractCreate(BaseModel):
+    apartment_id: int
+    sale_price: float
+
+
 class ContractOut(_Base):
     id: int
     contract_number: str

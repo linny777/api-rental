@@ -108,6 +108,56 @@ class SignRequest(BaseModel):
     signature_base64: str  # PNG as base64
 
 
+@router.post("/sale/", response_model=schemas.ContractOut, status_code=201)
+def create_sale_contract(
+    body: schemas.SaleContractCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    apt = db.query(models.Apartment).filter(models.Apartment.id == body.apartment_id).first()
+    if not apt:
+        raise HTTPException(404, "Apartment not found")
+    if apt.owner_id == current_user.id:
+        raise HTTPException(400, "Owner cannot buy own apartment")
+    if apt.type != "Sale":
+        raise HTTPException(400, "This apartment is not for sale")
+
+    existing = db.query(models.RentalContract).filter(
+        models.RentalContract.apartment_id == body.apartment_id,
+        models.RentalContract.renter_id == current_user.id,
+        models.RentalContract.is_terminated == False,
+    ).first()
+    if existing:
+        raise HTTPException(400, "Sale contract already exists for this apartment")
+
+    today = datetime.utcnow()
+    count = db.query(models.RentalContract).count() + 1
+    contract_number = f"КП-{today.strftime('%Y%m%d')}-{count:04d}"
+
+    contract = models.RentalContract(
+        contract_number=contract_number,
+        apartment_id=body.apartment_id,
+        owner_id=apt.owner_id,
+        renter_id=current_user.id,
+        start_date=today,
+        end_date=today,
+        monthly_price=body.sale_price,
+    )
+    db.add(contract)
+    db.flush()
+
+    chat = _get_or_create_chat(db, body.apartment_id, apt.owner_id, current_user.id)
+    _send_system_message(
+        db, chat, contract,
+        f"📋 Создан договор купли-продажи {contract.contract_number}. "
+        f"Стоимость: {float(body.sale_price):,.0f} руб. "
+        f"Покупатель: {current_user.username}. Ожидается подпись покупателя."
+    )
+
+    db.commit()
+    return _contract_out(_load_contract(db, contract.id))
+
+
 @router.post("/{contract_id}/sign", response_model=schemas.ContractOut)
 def sign_contract(
     contract_id: int,

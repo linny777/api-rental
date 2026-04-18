@@ -70,9 +70,14 @@ def generate(contract: models.RentalContract) -> bytes:
     sig_body_style = ParagraphStyle("sig_body", fontName=font, fontSize=10,
                                      spaceAfter=2)
 
+    is_sale = contract.contract_number.startswith("КП-")
+
     story = []
 
-    story.append(Paragraph("ДОГОВОР АРЕНДЫ ЖИЛОГО ПОМЕЩЕНИЯ", title_style))
+    if is_sale:
+        story.append(Paragraph("ДОГОВОР КУПЛИ-ПРОДАЖИ КВАРТИРЫ", title_style))
+    else:
+        story.append(Paragraph("ДОГОВОР АРЕНДЫ ЖИЛОГО ПОМЕЩЕНИЯ", title_style))
     story.append(Paragraph(f"№ {contract.contract_number}", center_style))
     story.append(Paragraph(f"Дата: {contract.created_at.strftime('%d.%m.%Y')}", center_style))
     story.append(Spacer(1, 8*mm))
@@ -81,32 +86,65 @@ def generate(contract: models.RentalContract) -> bytes:
         story.append(Paragraph(title, heading_style))
         story.append(Paragraph(body.replace("\n", "<br/>"), body_style))
 
-    section(
-        "1. СТОРОНЫ ДОГОВОРА",
-        f"Арендодатель: {owner_name}, тел.: {owner_phone}\n"
-        f"Арендатор: {renter_name}, тел.: {renter_phone}"
-    )
-    section(
-        "2. ПРЕДМЕТ ДОГОВОРА",
-        f"Объект аренды: {apt_title}\n"
-        f"Адрес: {apt_address}\n"
-        f"Срок аренды: {contract.start_date.strftime('%d.%m.%Y')} — {contract.end_date.strftime('%d.%m.%Y')}\n"
-        f"Ежемесячная плата: {float(contract.monthly_price):,.0f} руб."
-    )
-    section(
-        "3. ПРАВА И ОБЯЗАННОСТИ СТОРОН",
-        "3.1. Арендатор обязуется использовать помещение для проживания, своевременно вносить арендную плату.\n"
-        "3.2. Арендодатель обязуется передать помещение в пригодном для проживания состоянии."
-    )
-    section(
-        "4. ОТВЕТСТВЕННОСТЬ СТОРОН",
-        "4.1. При досрочном расторжении договора сторона-инициатор обязана уведомить другую сторону за 30 дней."
-    )
-    section(
-        "5. ПРОЧИЕ УСЛОВИЯ",
-        "5.1. Договор составлен в двух экземплярах.\n"
-        "5.2. Все изменения действительны только в письменном виде."
-    )
+    if is_sale:
+        section(
+            "1. СТОРОНЫ ДОГОВОРА",
+            f"Продавец: {owner_name}, тел.: {owner_phone}\n"
+            f"Покупатель: {renter_name}, тел.: {renter_phone}"
+        )
+        section(
+            "2. ПРЕДМЕТ ДОГОВОРА",
+            f"Продавец обязуется передать в собственность, а Покупатель — принять и оплатить квартиру.\n"
+            f"Объект: {apt_title}\n"
+            f"Адрес: {apt_address}"
+        )
+        section(
+            "3. ЦЕНА И ПОРЯДОК РАСЧЁТОВ",
+            f"3.1. Стоимость квартиры составляет {float(contract.monthly_price):,.0f} руб.\n"
+            f"3.2. Оплата производится в порядке, согласованном сторонами."
+        )
+        section(
+            "4. ПРАВА И ОБЯЗАННОСТИ СТОРОН",
+            "4.1. Продавец обязуется передать квартиру, свободную от прав третьих лиц, в надлежащем состоянии.\n"
+            "4.2. Покупатель обязуется принять квартиру и оплатить её стоимость в установленный срок."
+        )
+        section(
+            "5. ОТВЕТСТВЕННОСТЬ СТОРОН",
+            "5.1. В случае неисполнения обязательств стороны несут ответственность "
+            "в соответствии с действующим законодательством РФ."
+        )
+        section(
+            "6. ПРОЧИЕ УСЛОВИЯ",
+            "6.1. Договор составлен в двух экземплярах, имеющих одинаковую юридическую силу.\n"
+            "6.2. Все изменения и дополнения действительны только в письменном виде."
+        )
+    else:
+        section(
+            "1. СТОРОНЫ ДОГОВОРА",
+            f"Арендодатель: {owner_name}, тел.: {owner_phone}\n"
+            f"Арендатор: {renter_name}, тел.: {renter_phone}"
+        )
+        section(
+            "2. ПРЕДМЕТ ДОГОВОРА",
+            f"Объект аренды: {apt_title}\n"
+            f"Адрес: {apt_address}\n"
+            f"Срок аренды: {contract.start_date.strftime('%d.%m.%Y')} — {contract.end_date.strftime('%d.%m.%Y')}\n"
+            f"Ежемесячная плата: {float(contract.monthly_price):,.0f} руб."
+        )
+        section(
+            "3. ПРАВА И ОБЯЗАННОСТИ СТОРОН",
+            "3.1. Арендатор обязуется использовать помещение для проживания, своевременно вносить арендную плату.\n"
+            "3.2. Арендодатель обязуется передать помещение в пригодном для проживания состоянии."
+        )
+        section(
+            "4. ОТВЕТСТВЕННОСТЬ СТОРОН",
+            "4.1. При досрочном расторжении договора сторона-инициатор обязана уведомить другую сторону за 30 дней."
+        )
+        section(
+            "5. ПРОЧИЕ УСЛОВИЯ",
+            "5.1. Договор составлен в двух экземплярах.\n"
+            "5.2. Все изменения действительны только в письменном виде."
+        )
 
     story.append(Spacer(1, 8*mm))
     story.append(Paragraph("ПОДПИСИ СТОРОН", heading_style))
@@ -136,9 +174,12 @@ def generate(contract: models.RentalContract) -> bytes:
     from reportlab.platypus import Table, TableStyle
     from reportlab.lib import colors
 
-    owner_col = sig_block("Арендодатель:", owner_name, owner_phone,
+    seller_label = "Продавец:" if is_sale else "Арендодатель:"
+    buyer_label = "Покупатель:" if is_sale else "Арендатор:"
+
+    owner_col = sig_block(seller_label, owner_name, owner_phone,
                            contract.owner_signature_data, contract.owner_signed_at)
-    renter_col = sig_block("Арендатор:", renter_name, renter_phone,
+    renter_col = sig_block(buyer_label, renter_name, renter_phone,
                             contract.signature_data, contract.signed_at)
 
     max_rows = max(len(owner_col), len(renter_col))
